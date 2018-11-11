@@ -20,11 +20,35 @@
 #include "Utility.h"
 #include "LogSwitch.h"
 #include "Problem.h"
+#define MAX_ITER 1000
+#define count 2
+#define RECENCY 5
+//#define numPcenter 10
+#define MAX 100000
+#define MIN -1000
 
 
 namespace szx {
-
+const int INF = 1000;
 class Solver {
+    float best_solution;//目标函数值，即最大距离
+    int flag;
+    std::vector <std::vector<int>> TabuTenure;
+    std::vector<int> pcenter;
+    std::vector<int> sameScid;
+    std::vector <std::vector <int>> PtoNode;
+    std::vector <std::vector <int>> F;
+    std::vector <std::vector <float>> D;
+    int iter;
+    struct pair {
+        int nodeid;
+        int centerid;
+        float delt;
+    };
+    struct Scinfo {
+        int Scid;
+        float Sc;
+    };
     #pragma region Type
 public:
     // commmand line interface.
@@ -197,7 +221,18 @@ public:
 
 protected:
     void init();
-    bool optimize(Solution &sln, ID workerId = 0); // optimize by a single worker.
+    bool optimize(Solution &sln, float &object, ID workerId = 0); // optimize by a single worker.
+    int init_findP(Solution &sln, Scinfo &ScInfo, ID nodeNum);//找到最远服务边对应点的其他小于最远服务边的点，随机寻找下一个P点
+    bool init_solution(Solution &sln, Scinfo &ScInfo, ID nodeNum, ID centerNum);//初始解
+    bool initfuncation(Solution &sln, Scinfo &ScInfo,ID nodeNum);//初始目标函数值
+    void initDandFtable(Solution &sln, int tempP, ID nodeNum);
+    int find_sameScid(Solution &sln, Scinfo &ScInfo,ID nodeNum);
+    int find_pair(Solution &sln, Scinfo &ScInfo, pair &Pair, ID nodeNum,ID centerNum);
+    void add_facility(Solution &sln, pair &Pair, ID nodeNum);//新增服务点f，更新F表和D表
+    void remove_facility(Solution &sln, pair &Pair, ID nodeNum,ID centerNum);//删除服务点f，更新F表和D表
+    //int fine_move(Solution &sln);//寻找新增节点i，禁忌实现？
+    void change_pair(Solution &sln, pair &Pair, ID nodeNum, ID centerNum);//比较目标函数值Sc和新增节点后产生的距离Mf，取大者。
+    int find_next(Solution &sln, int v, ID nodeNum,ID centerNum);
     #pragma endregion Method
 
     #pragma region Field
