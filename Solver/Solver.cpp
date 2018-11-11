@@ -432,7 +432,7 @@ bool Solver::optimize(Solution &sln, float &object, ID workerId) {
     clock_t start_time = clock();
     iter = 1;
     clock_t mid_tim;
-    while ((mid_tim - start_time)*1.0 / CLOCKS_PER_SEC < 200)//搜索条件
+    while ((mid_tim - start_time)*1.0 / CLOCKS_PER_SEC < 800)//搜索条件
     {
         flag = 1;
         Pair = { -1 };
