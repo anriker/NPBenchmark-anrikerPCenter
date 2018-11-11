@@ -31,7 +31,7 @@ int Solver::Cli::run(int argc, char * argv[]) {
         { EnvironmentPathOption(), nullptr },
         { ConfigPathOption(), nullptr },
         { LogPathOption(), nullptr }
-    });
+        });
 
     for (int i = 1; i < argc; ++i) { // skip executable name.
         auto mapIter = optionMap.find(argv[i]);
@@ -165,7 +165,7 @@ bool Solver::solve() {
     threadList.reserve(workerNum);
 
     fstream file;
-    float object=127;
+    float object = 127;
     string name;
     file.open("best_result.txt", ios::in | ios::out);
     if (!file) {
@@ -186,7 +186,7 @@ bool Solver::solve() {
     for (int i = 0; i < workerNum; ++i) {
         // TODO[szx][2]: as *this is captured by ref, the solver should support concurrency itself, i.e., data members should be read-only or independent for each worker.
         // OPTIMIZE[szx][3]: add a list to specify a series of algorithm to be used by each threads in sequence.
-        threadList.emplace_back([&, i]() { success[i] = optimize(solutions[i], object,i); });
+        threadList.emplace_back([&, i]() { success[i] = optimize(solutions[i], object, i); });
     }
     for (int i = 0; i < workerNum; ++i) { threadList.at(i).join(); }
 
@@ -223,9 +223,16 @@ void Solver::record() const {
     log << env.friendlyLocalTime() << ","
         << env.rid << ","
         << env.instPath << ","
-        << feasible << "," << (obj - checkerObj) << ","
-        << obj << ","
-        << timer.elapsedSeconds() << ","
+        << feasible << "," << (obj - checkerObj) << ",";
+        if (Problem::isTopologicalGraph(input)) {
+            log << obj << ",";
+        } else {
+            auto oldPrecision = log.precision();
+            log.precision(2);
+            log << fixed << setprecision(2) << (obj / aux.objScale) << ",";
+            log.precision(oldPrecision);
+        }
+        log << timer.elapsedSeconds() << ","
         << mu.physicalMemory << "," << mu.virtualMemory << ","
         << env.randSeed << ","
         << cfg.toBriefStr() << ","
@@ -271,46 +278,63 @@ bool Solver::check(Length &checkerObj) const {
 }
 
 void Solver::init() {
-    aux.adjMat.init(input.graph().nodenum(), input.graph().nodenum());
+    ID nodeNum = input.graph().nodenum();
+
+    aux.adjMat.init(nodeNum, nodeNum);
     fill(aux.adjMat.begin(), aux.adjMat.end(), Problem::MaxDistance);
-    for (ID n = 0; n < input.graph().nodenum(); ++n) { aux.adjMat.at(n, n) = 0; }
-    for (auto e = input.graph().edges().begin(); e != input.graph().edges().end(); ++e) {
-        // only record the last appearance of each edge.
-        aux.adjMat.at(e->source(), e->target()) = e->length();
-        aux.adjMat.at(e->target(), e->source()) = e->length();
+    for (ID n = 0; n < nodeNum; ++n) { aux.adjMat.at(n, n) = 0; }
+
+    if (Problem::isTopologicalGraph(input)) {
+        aux.objScale = Problem::TopologicalGraphObjScale;
+        for (auto e = input.graph().edges().begin(); e != input.graph().edges().end(); ++e) {
+            // only record the last appearance of each edge.
+            aux.adjMat.at(e->source(), e->target()) = e->length();
+            aux.adjMat.at(e->target(), e->source()) = e->length();
+        }
+
+        Timer timer(30s);
+        constexpr bool IsUndirectedGraph = true;
+        IsUndirectedGraph
+            ? Floyd::findAllPairsPaths_symmetric(aux.adjMat)
+            : Floyd::findAllPairsPaths_asymmetric(aux.adjMat);
+        Log(LogSwitch::Preprocess) << "Floyd takes " << timer.elapsedSeconds() << " seconds." << endl;
+    } else { // geometrical graph.
+        aux.objScale = Problem::GeometricalGraphObjScale;
+        for (ID n = 0; n < nodeNum; ++n) {
+            double nx = input.graph().nodes(n).x();
+            double ny = input.graph().nodes(n).y();
+            for (ID m = 0; m < nodeNum; ++m) {
+                if (n == m) { continue; }
+                aux.adjMat.at(n, m) = static_cast<Length>(aux.objScale * hypot(
+                    nx - input.graph().nodes(m).x(), ny - input.graph().nodes(m).y()));//½«¾àÀëÔö´óÁ½±¶£¬»¯³ÉÕûÊı
+            }
+        }
     }
 
-    Timer timer(30s);
-    constexpr bool IsUndirectedGraph = true;
-    IsUndirectedGraph
-        ? Floyd::findAllPairsPaths_symmetric(aux.adjMat)
-        : Floyd::findAllPairsPaths_asymmetric(aux.adjMat);
-    Log(LogSwitch::Preprocess) << "Floyd takes " << timer.elapsedSeconds() << " seconds." << endl;
-
-    aux.coverRadii.init(input.graph().nodenum());
+    aux.coverRadii.init(nodeNum);
     fill(aux.coverRadii.begin(), aux.coverRadii.end(), Problem::MaxDistance);
 }
 
-bool Solver::init_solution(Solution &sln, Scinfo &ScInfo,ID nodeNum,ID centerNum) {
+bool Solver::init_solution(Solution &sln, Scinfo &ScInfo, ID nodeNum, ID centerNum) {
     srand(rand() % MAX);
     pcenter.push_back(rand() % nodeNum);
     for (int i = 0; i != nodeNum; i++) {
         D[i][0] = aux.adjMat[pcenter[0]][i];
         F[i][0] = pcenter[0];
     }
-    int i = initfuncation(sln, ScInfo,nodeNum);
+    int i = initfuncation(sln, ScInfo, nodeNum);
     if (i == -1)
         return -1;
     for (int i = 1; i != centerNum; i++) {
-        int tempP = init_findP(sln, ScInfo,nodeNum);
-        initDandFtable(sln, tempP,nodeNum);
+        int tempP = init_findP(sln, ScInfo, nodeNum);
+        initDandFtable(sln, tempP, nodeNum);
         pcenter.push_back(tempP);
-        initfuncation(sln, ScInfo,nodeNum);
+        initfuncation(sln, ScInfo, nodeNum);
     }
     return 1;
 }
 
-int Solver::init_findP(Solution &sln, Scinfo &ScInfo,ID nodeNum) {
+int Solver::init_findP(Solution &sln, Scinfo &ScInfo, ID nodeNum) {
     vector <int> id;
     int tempP;
     for (int i = 0; i != nodeNum; i++) {
@@ -327,7 +351,7 @@ int Solver::init_findP(Solution &sln, Scinfo &ScInfo,ID nodeNum) {
     return tempP;
 }
 
-void Solver::initDandFtable(Solution &sln, int tempP,ID nodeNum) {
+void Solver::initDandFtable(Solution &sln, int tempP, ID nodeNum) {
 
     for (int j = 0; j != nodeNum; j++) {
         if (pcenter.size() == 1) {
@@ -359,13 +383,14 @@ void Solver::initDandFtable(Solution &sln, int tempP,ID nodeNum) {
 }
 
 
-
 bool Solver::optimize(Solution &sln, float &object, ID workerId) {
     Log(LogSwitch::Szx::Framework) << "worker " << workerId << " starts." << endl;
     bool status = true;
     ID nodeNum = input.graph().nodenum();
     ID centerNum = input.centernum();
     //sln.maxLength = 0;
+    //auto &centers(*sln.mutable_centers());
+   // centers.Resize(centerNum, Problem::InvalidId);
     TabuTenure = vector<vector<int>>(nodeNum, vector<int>(nodeNum, 0));
     F = vector<vector<int>>(nodeNum, vector<int>(2, 0));
     D = vector<vector<float>>(nodeNum, vector<float>(2, 0));
@@ -392,37 +417,39 @@ bool Solver::optimize(Solution &sln, float &object, ID workerId) {
     //sln.maxLength = *maxPosition_s; // ËùÓĞ·şÎñ±ßÖĞµÄ×î´óÖµ£¬¼´ÎÊÌâµÄÊä³ö
     pair Pair = { -1 };
     Scinfo ScInfo = { -1 };
-    int flag = init_solution(sln, ScInfo,nodeNum,centerNum);//³õÊ¼½â
+    int flag = init_solution(sln, ScInfo, nodeNum, centerNum);//³õÊ¼½â
     if (flag == -1) {
         cout << "error!!";
         return -1;
     }
 
-    //int iter;//µü´ú´ÎÊı
-    initfuncation(sln, ScInfo,nodeNum);
+    initfuncation(sln, ScInfo, nodeNum);
     best_solution = ScInfo.Sc;
-   /* for (int i = 0; i != pcenter.size(); i++) {
+    /*for (int i = 0; i != pcenter.size(); i++) {
         cout << pcenter[i] + 1 << " ";
     }*/
-    cout << endl << "the init best solution:" << ScInfo.Sc << endl;
+    cout << endl << "the init best solution:" << best_solution << endl;
     clock_t start_time = clock();
     iter = 1;
     clock_t mid_tim;
-    while ((mid_tim - start_time)*1.0 / CLOCKS_PER_SEC < 100)//ËÑË÷Ìõ¼ş
+    while ((mid_tim - start_time)*1.0 / CLOCKS_PER_SEC < 200)//ËÑË÷Ìõ¼ş
     {
         flag = 1;
         Pair = { -1 };
-        int flag = find_pair(sln, ScInfo, Pair,nodeNum,centerNum);//tabu·¢ÏÖ½»»»¶Ô
+        int flag = find_pair(sln, ScInfo, Pair, nodeNum, centerNum);//tabu·¢ÏÖ½»»»¶Ô
        // cout << "Pair:" << Pair.nodeid << "," << Pair.centerid << "," << Pair.delt << endl;
         //if (Pair.centerid == -1 || Pair.nodeid == -1)
            // break;      
-        change_pair(sln, Pair,nodeNum,centerNum);//¸üĞÂ½»»»¶Ô 
-
-        initfuncation(sln, ScInfo,nodeNum);
+        change_pair(sln, Pair, nodeNum, centerNum);//¸üĞÂ½»»»¶Ô 
+        initfuncation(sln, ScInfo, nodeNum);
+        if (best_solution > ScInfo.Sc) {
+            best_solution = ScInfo.Sc;
+           // cout << best_solution <<"\t";
+        }
         iter++;
         if (ScInfo.Sc == object)
             break;
-       // cout << "the next Sc:" << ScInfo.Sc << endl;
+        //cout  << ScInfo.Sc << "\t";
         mid_tim = clock();
     }
    /* for (int i = 0; i != nodeNum; i++) {
@@ -446,7 +473,7 @@ bool Solver::optimize(Solution &sln, float &object, ID workerId) {
     return status;
 }
 
-bool Solver::initfuncation(Solution &sln, Scinfo &ScInfo,ID nodeNum) {
+bool Solver::initfuncation(Solution &sln, Scinfo &ScInfo, ID nodeNum) {
     int tempid;
     float tempSc = -1;
     for (int j = 0; j != nodeNum; j++) {//×î³¤±ß¶ÔÓ¦µÄ·şÎñµãÓĞ¶à¸öÊ±Ó¦¸ÃËæ»úÑ¡ÔñÒ»¸ö
@@ -465,7 +492,7 @@ bool Solver::initfuncation(Solution &sln, Scinfo &ScInfo,ID nodeNum) {
     return 1;//ÊÇ·ñÓ¦¸ÃÓĞÒ»¸öÊı×é¼ÇÂ¼µ±Ç°ËùÓĞ×î³¤·şÎñ±ß¶ÔÓ¦µÄÆÕÍ¨½Úµã
 }
 
-int Solver::find_pair(Solution &sln, Scinfo &ScInfo, pair &Pair,ID nodeNum, ID centerNum) {//È·¶¨½»»»¶Ô<nodei£¬centerj>
+int Solver::find_pair(Solution &sln, Scinfo &ScInfo, pair &Pair, ID nodeNum, ID centerNum) {//È·¶¨½»»»¶Ô<nodei£¬centerj>
     vector <int> id;//¼ÇÂ¼Ğ¡ÓÚ×î³¤±ßµÄµã¶ÔÓ¦µÄĞ¡ÓÚ×î³¤·şÎñ±ßµÄµã
     vector <pair> tempPair;
     pair tabu_pair;// = { 0 };
@@ -543,7 +570,7 @@ int Solver::find_pair(Solution &sln, Scinfo &ScInfo, pair &Pair,ID nodeNum, ID c
 
     }
    // cout << "haha" << endl;
-    if ((tabu_pair.delt < no_tabu_pair.delt) && tabu_pair.delt < ScInfo.Sc)// && (tabu_pair.delt > 0.01)) //½â½ûÌõ¼ş£º½û¼É½âÓÅÓÚµ±Ç°²éÕÒµÄ·Ç½û¼É½âÖĞ×îºÃµÄÇÒÓÅÓÚÀúÊ·×îÓÅ½â
+    if ((tabu_pair.delt < no_tabu_pair.delt) && tabu_pair.delt < best_solution)// && (tabu_pair.delt > 0.01)) //½â½ûÌõ¼ş£º½û¼É½âÓÅÓÚµ±Ç°²éÕÒµÄ·Ç½û¼É½âÖĞ×îºÃµÄÇÒÓÅÓÚÀúÊ·×îÓÅ½â
     {
         if (Pair.centerid == tabu_pair.nodeid && Pair.nodeid == tabu_pair.centerid) {
             return -1;
@@ -553,17 +580,16 @@ int Solver::find_pair(Solution &sln, Scinfo &ScInfo, pair &Pair,ID nodeNum, ID c
     } else {//if (no_tabu_pair.delt <= ScInfo.Sc) {
 
         Pair = no_tabu_pair;
-    } if (Pair.centerid == -1 || Pair.nodeid == -1) {
-        ScInfo.Scid = find_sameScid(sln, ScInfo,nodeNum);
-
-        find_pair(sln, ScInfo, Pair,nodeNum,centerNum);
-    }
+    } /*if (Pair.centerid == -1 || Pair.nodeid == -1) {
+        ScInfo.Scid = find_sameScid(sln, ScInfo, nodeNum);
+        find_pair(sln, ScInfo, Pair, nodeNum, centerNum);
+    }*/
    // cout << "tempSC:" << Pair.delt << endl;
     return 1;
 
 }
 
-int Solver::find_sameScid(Solution &sln, Scinfo &ScInfo,ID nodeNum) {
+int Solver::find_sameScid(Solution &sln, Scinfo &ScInfo, ID nodeNum) {
     for (int i = 0; i != nodeNum; i++) {
         if (D[i][0] == ScInfo.Sc) {
             sameScid.push_back(i);
@@ -575,7 +601,7 @@ int Solver::find_sameScid(Solution &sln, Scinfo &ScInfo,ID nodeNum) {
     return sameScid[t];
 }
 
-void Solver::add_facility(Solution &sln, pair &Pair,ID nodeNum) {
+void Solver::add_facility(Solution &sln, pair &Pair, ID nodeNum) {
     for (int i = 0; i != nodeNum; i++) {
         if (D[i][0] > aux.adjMat[Pair.nodeid][i]) {
             D[i][1] = D[i][0];
@@ -623,7 +649,7 @@ int Tabu::findremove_facility(vector <Nodes> &Node, int f) {//Ç°p¸ö·şÎñµãÖĞÕÒµ½Ò
 }
 #endif
 
-void Solver::remove_facility(Solution &sln, pair &Pair,ID nodeNum,ID centerNum) {
+void Solver::remove_facility(Solution &sln, pair &Pair, ID nodeNum, ID centerNum) {
     int tempPlace = 0;
     for (int j = 0; j != centerNum; j++) {
         if (pcenter[j] == Pair.centerid) {
@@ -636,13 +662,13 @@ void Solver::remove_facility(Solution &sln, pair &Pair,ID nodeNum,ID centerNum) 
         if (F[i][0] == Pair.centerid) {
             D[i][0] = D[i][1];
             F[i][0] = F[i][1];
-            int nextp = find_next(sln, i,nodeNum,centerNum);
+            int nextp = find_next(sln, i, nodeNum, centerNum);
            // cout  << "nextp1:" << nextp;
             D[i][1] = aux.adjMat[nextp][i];
             F[i][1] = nextp;
 
         } else if (pcenter.size() > 1 && F[i][1] == Pair.centerid) {
-            int nextp = find_next(sln, i,nodeNum,centerNum);
+            int nextp = find_next(sln, i, nodeNum, centerNum);
             D[i][1] = aux.adjMat[nextp][i];
             F[i][1] = nextp;
         }
@@ -664,7 +690,7 @@ void Solver::remove_facility(Solution &sln, pair &Pair,ID nodeNum,ID centerNum) 
 */
 
 
-int Solver::find_next(Solution &sln, int v,ID nodeNum,ID centerNum) {
+int Solver::find_next(Solution &sln, int v, ID nodeNum, ID centerNum) {
     float tempsecondmax = MAX;
     int tempsecondmaxP = -1;
     for (int j = 0; j != centerNum; j++) {
@@ -687,12 +713,14 @@ int Solver::find_next(Solution &sln, int v,ID nodeNum,ID centerNum) {
 }
 
 
-void Solver::change_pair(Solution &sln, pair &Pair,ID nodeNum,ID centerNum) {
+void Solver::change_pair(Solution &sln, pair &Pair, ID nodeNum, ID centerNum) {
     //¸üĞÂtabu±í
-    TabuTenure[Pair.centerid][Pair.nodeid] = TabuTenure[Pair.nodeid][Pair.centerid] = centerNum + iter + rand() % iter;
+    //cout << "centerid,nodeid:" << Pair.centerid << "," << Pair.nodeid << endl;
+    
+    TabuTenure[Pair.centerid][Pair.nodeid] = TabuTenure[Pair.nodeid][Pair.centerid] = 50 + iter + rand() % iter;
 
-    add_facility(sln, Pair,nodeNum);//Ìí¼ÓPair.nodeid·şÎñµã
-    remove_facility(sln, Pair,nodeNum,centerNum);//É¾³ıPair.centerid·şÎñµã
+    add_facility(sln, Pair, nodeNum);//Ìí¼ÓPair.nodeid·şÎñµã
+    remove_facility(sln, Pair, nodeNum, centerNum);//É¾³ıPair.centerid·şÎñµã
 }
 
 //void Solver::check(Solution &sln) {
