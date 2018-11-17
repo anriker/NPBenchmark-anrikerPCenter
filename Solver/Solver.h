@@ -31,23 +31,24 @@
 namespace szx {
 const int INF = 1000;
 class Solver {
-    float best_solution;//目标函数值，即最大距离
+    int best_solution;//目标函数值，即最大距离
     int flag;
+    int badcount;
     std::vector <std::vector<int>> TabuTenure;
     std::vector<int> pcenter;
     std::vector<int> sameScid;
     std::vector <std::vector <int>> PtoNode;
     std::vector <std::vector <int>> F;
-    std::vector <std::vector <float>> D;
+    std::vector <std::vector <int>> D;
     int iter;
     struct pair {
         int nodeid;
         int centerid;
-        float delt;
+        int delt;
     };
     struct Scinfo {
         int Scid;
-        float Sc;
+        int Sc;
     };
     #pragma region Type
 public:
@@ -221,7 +222,7 @@ public:
 
 protected:
     void init();
-    bool optimize(Solution &sln, float &object, ID workerId = 0); // optimize by a single worker.
+    bool optimize(Solution &sln, unsigned int &object, ID workerId = 0); // optimize by a single worker.
     int init_findP(Solution &sln, Scinfo &ScInfo, ID nodeNum);//找到最远服务边对应点的其他小于最远服务边的点，随机寻找下一个P点
     bool init_solution(Solution &sln, Scinfo &ScInfo, ID nodeNum, ID centerNum);//初始解
     bool initfuncation(Solution &sln, Scinfo &ScInfo,ID nodeNum);//初始目标函数值

@@ -10,9 +10,9 @@ int main() {
 
     Simulator sim;
     //while(1)
-     //sim.debug();
-    //sim.benchmark(4);
-    sim.parallelBenchmark(2);
+     sim.debug();
+   // sim.benchmark(4);
+    //sim.parallelBenchmark(2);
     //sim.generateInstance();
     //for (int i = 1; i <= 40; ++i) { sim.convertPmedInstance("Instance/pmed/pmed", i); }
     //for (int p = 10; p <= 150; p += 10) { sim.convertTspInstance("u1060", p); }

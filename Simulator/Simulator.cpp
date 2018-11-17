@@ -60,7 +60,7 @@ static const vector<String> instList({
     "pmed38.n900e15898p5",
     "pmed39.n900e15896p10",
     "pmed40.n900e15879p90",*/
-    /*"tsp.u1060.p10",
+    "tsp.u1060.p10",
     "tsp.u1060.p20",
     "tsp.u1060.p30",
     "tsp.u1060.p40",
@@ -74,7 +74,7 @@ static const vector<String> instList({
     "tsp.u1060.p120",
     "tsp.u1060.p130",
     "tsp.u1060.p140",
-    "tsp.u1060.p150",*/
+    "tsp.u1060.p150",
     "tsp.rl1323.p10",
     "tsp.rl1323.p20",
     "tsp.rl1323.p30",
@@ -197,7 +197,7 @@ void Simulator::run(const String &envPath) {
 void Simulator::debug() {
     Task task;
     task.instSet = "";
-    task.instId = "tsp.u1817.p20";
+    task.instId = "tsp.u1060.p20";
     task.randSeed = "1500972793";
     //task.randSeed = to_string(RandSeed::generate());
     task.timeout = "180";

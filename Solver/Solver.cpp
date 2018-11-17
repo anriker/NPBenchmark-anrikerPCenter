@@ -165,20 +165,21 @@ bool Solver::solve() {
     threadList.reserve(workerNum);
 
     fstream file;
-    float object = 127;
+    unsigned int object ;
     string name;
     file.open("best_result.txt", ios::in | ios::out);
     if (!file) {
         cout << "**error" << endl;
     }
     char *line = new char[INF];
-    float obj;
+    unsigned int obj;
     while (!file.eof()) {
         file >> obj;
+        //cout << obj << "\t";
         file >> name;
         if ("Instance/" + name + ".json" == env.instPath) {
             object = obj;
-           // cout<<object<<endl;
+          // cout<<object<<endl;
             break;
         }
     }file.close();
@@ -383,7 +384,7 @@ void Solver::initDandFtable(Solution &sln, int tempP, ID nodeNum) {
 }
 
 
-bool Solver::optimize(Solution &sln, float &object, ID workerId) {
+bool Solver::optimize(Solution &sln, unsigned int &object, ID workerId) {
     Log(LogSwitch::Szx::Framework) << "worker " << workerId << " starts." << endl;
     bool status = true;
     ID nodeNum = input.graph().nodenum();
@@ -393,7 +394,7 @@ bool Solver::optimize(Solution &sln, float &object, ID workerId) {
    // centers.Resize(centerNum, Problem::InvalidId);
     TabuTenure = vector<vector<int>>(nodeNum, vector<int>(nodeNum, 0));
     F = vector<vector<int>>(nodeNum, vector<int>(2, 0));
-    D = vector<vector<float>>(nodeNum, vector<float>(2, 0));
+    D = vector<vector<int>>(nodeNum, vector<int>(2, 0));
 
     // TODO[0]: replace the following random assignment with your own algorithm.
     //for (int e = 0; !timer.isTimeOut() && (e < centerNum); ++e) { // 随机生成服务节点p
@@ -432,6 +433,7 @@ bool Solver::optimize(Solution &sln, float &object, ID workerId) {
     clock_t start_time = clock();
     iter = 1;
     clock_t mid_tim;
+    badcount=1;
     while ((mid_tim - start_time)*1.0 / CLOCKS_PER_SEC < 800)//搜索条件
     {
         flag = 1;
@@ -442,12 +444,15 @@ bool Solver::optimize(Solution &sln, float &object, ID workerId) {
            // break;      
         change_pair(sln, Pair, nodeNum, centerNum);//更新交换对 
         initfuncation(sln, ScInfo, nodeNum);
+        badcount++;
         if (best_solution > ScInfo.Sc) {
+            badcount = 1;
             best_solution = ScInfo.Sc;
-           // cout << best_solution <<"\t";
+           cout << best_solution <<"\t";
         }
+        
         iter++;
-        if (ScInfo.Sc == object)
+        if (ScInfo.Sc <= object)
             break;
         //cout  << ScInfo.Sc << "\t";
         mid_tim = clock();
@@ -459,7 +464,7 @@ bool Solver::optimize(Solution &sln, float &object, ID workerId) {
     }cout << endl;*/
     clock_t end_time = clock();
     for (int i = 0; i != pcenter.size(); i++) {
-        cout << pcenter[i] << " ";
+        //cout << pcenter[i] << " ";
         sln.add_centers(pcenter[i]);
     }
     if (ScInfo.Sc < best_solution)
@@ -467,15 +472,15 @@ bool Solver::optimize(Solution &sln, float &object, ID workerId) {
     //sln.maxLength = best_solution;
     cout << "the iter: " << iter << endl;
     cout << "the most solution: " << best_solution << endl;
-    cout << "the true best solution:" << object << endl;
-    cout << "the time is:" << (end_time - start_time)*1.0 / CLOCKS_PER_SEC << "s" << endl;
+   // cout << "the true best solution:" << object << endl;
+   // cout << "the time is:" << (end_time - start_time)*1.0 / CLOCKS_PER_SEC << "s" << endl;
     Log(LogSwitch::Szx::Framework) << "worker " << workerId << " ends." << endl;
     return status;
 }
 
 bool Solver::initfuncation(Solution &sln, Scinfo &ScInfo, ID nodeNum) {
     int tempid;
-    float tempSc = -1;
+    int tempSc = -1;
     for (int j = 0; j != nodeNum; j++) {//最长边对应的服务点有多个时应该随机选择一个
         if (tempSc < D[j][0]) {
             tempSc = D[j][0];
@@ -512,14 +517,18 @@ int Solver::find_pair(Solution &sln, Scinfo &ScInfo, pair &Pair, ID nodeNum, ID 
     if (id.size() == 0)
         return -1;
     vector <Scinfo> tempScinfo((id.size()));
-    for (int i = 0; i != id.size(); i++) {
+   /* if (badcount > 5000) {
+        no_tabu_pair.nodeid = id[rand() % id.size()];
+        no_tabu_pair.centerid = pcenter[rand() % centerNum];
+    }*/
+     for (int i = 0; i != id.size(); i++) {
         //找最好的交换对
         pair tempPair1;
         tempPair1.delt = MAX;
         tempPair1.nodeid = id[i];
         vector <vector <int> > tempF(F);
-        vector <vector <float> > tempD(D);
-        float tempSc = -1;
+        vector <vector <int> > tempD(D);
+        int tempSc = -1;
         for (int j = 0; j != nodeNum; j++) {//添加了服务点id[i]
             if (tempD[j][0] > aux.adjMat[id[i]][j]) {
                 tempD[j][1] = tempD[j][0];
@@ -534,8 +543,8 @@ int Solver::find_pair(Solution &sln, Scinfo &ScInfo, pair &Pair, ID nodeNum, ID 
                 tempSc = tempD[j][0];
         }
         //cout<<tempSc << "/t";
-        //vector <float> Mf(centerNum, 0);
-        float Mf;
+        //vector <int> Mf(centerNum, 0);
+        int Mf;
         for (int t = 0; t != centerNum; t++) {//寻找加入节点id[i]后删除中心节点pcenter[t]得到的最长服务边
             Mf = -1;
             for (int j = 0; j != nodeNum; j++) {
@@ -620,7 +629,7 @@ void Solver::add_facility(Solution &sln, pair &Pair, ID nodeNum) {
 #if 0
 int Tabu::findremove_facility(vector <Nodes> &Node, int f) {//前p个服务点中找到一个删除后产生的最大服务边最小的点删(禁忌策略找交换对<f,i>）
     vector <int> Mf(centerNum, 0);
-    float tempSc = 0;
+    int tempSc = 0;
     int tempScid;
     for (int j = 0; j != centerNum; j++) {
         for (int i = 0; i != nodeNum; i++) {
@@ -691,7 +700,7 @@ void Solver::remove_facility(Solution &sln, pair &Pair, ID nodeNum, ID centerNum
 
 
 int Solver::find_next(Solution &sln, int v, ID nodeNum, ID centerNum) {
-    float tempsecondmax = MAX;
+    int tempsecondmax = MAX;
     int tempsecondmaxP = -1;
     for (int j = 0; j != centerNum; j++) {
          //cout << pcenter[j] << "\t";
@@ -716,9 +725,12 @@ int Solver::find_next(Solution &sln, int v, ID nodeNum, ID centerNum) {
 void Solver::change_pair(Solution &sln, pair &Pair, ID nodeNum, ID centerNum) {
     //更新tabu表
     //cout << "centerid,nodeid:" << Pair.centerid << "," << Pair.nodeid << endl;
-    
-    TabuTenure[Pair.centerid][Pair.nodeid] = TabuTenure[Pair.nodeid][Pair.centerid] = 50 + iter + rand() % iter;
-
+    if(iter<5000 && centerNum<50)
+        TabuTenure[Pair.centerid][Pair.nodeid] = TabuTenure[Pair.nodeid][Pair.centerid] = centerNum+20 + iter + rand() % badcount;
+   else if(iter<5000 && centerNum>50)
+        TabuTenure[Pair.centerid][Pair.nodeid] = TabuTenure[Pair.nodeid][Pair.centerid] = centerNum + 10 + iter + rand() % badcount;
+    else
+        TabuTenure[Pair.centerid][Pair.nodeid] = TabuTenure[Pair.nodeid][Pair.centerid] = (centerNum+10) + iter + rand() % 5000;
     add_facility(sln, Pair, nodeNum);//添加Pair.nodeid服务点
     remove_facility(sln, Pair, nodeNum, centerNum);//删除Pair.centerid服务点
 }
